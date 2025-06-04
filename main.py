@@ -1,132 +1,151 @@
 import urllib.request
 import json
 import re
-import yaml
+import os
+from ruamel.yaml import YAML
+from utils import add_rules_to_items, translate_language_name, remove_invalid_blocks
+from ruamel.yaml.comments import CommentedMap
 
 
-def add_rules_to_items(yamlobj, markdown=False):
-    if markdown:
-        for rule in yamlobj:
-            for key, value in rule.items():
-                if isinstance(value, dict) and "rules" not in value:
-                    value["rules"] = []
-    else:
-        for rule in yamlobj["comment"]["rules"]:
-            for key, value in rule.items():
-                if isinstance(value, dict) and "rules" not in value:
-                    value["rules"] = []
+def download_yaml_files(repo, save_to_folder="yamlfiles"):
+    os.makedirs(save_to_folder, exist_ok=True)
 
-    return yamlobj
-
-
-def add_rules_to_items2(yamlobj, markdownobject=False):
-    def ensure_rules(obj):
-        if isinstance(obj, list):
-            for item in obj:
-                ensure_rules(item)
-        elif isinstance(obj, dict):
-            for key, value in obj.items():
-                if isinstance(value, dict):
-                    # If value is a dict and does not already contain "rules", add it
-                    if "rules" not in value:
-                        value["rules"] = []
-                    ensure_rules(value)  # Recurse into nested dict
-                elif isinstance(value, list):
-                    ensure_rules(value)  # Recurse into nested list
-
-    ensure_rules(yamlobj)
-    return yamlobj
-
-
-def retrieveYamlfiles(repo, path, numberOfFiles=100):
-    yamlcollection = []
-    markdownyamlobj = None
-    api_url = f"https://api.github.com/repos/{repo}/contents/{path}"
-
-    with urllib.request.urlopen(api_url) as response:
+    with urllib.request.urlopen(repo) as response:
         data = response.read()
         files = json.loads(data)
 
-    for file in files[:numberOfFiles]:
+    for file in files:
         if file["name"].endswith(".yaml"):
-            with urllib.request.urlopen(file["download_url"]) as raw_response:
-                content = raw_response.read().decode("utf-8")
-                match = re.search(r"^rules:\s*\n", content, flags=re.MULTILINE)
-                if match:
-                    if "python3" in file["name"]:
-                        language = file["name"].removesuffix("3.yaml")
-                    else:
-                        language = file["name"].removesuffix(".yaml")
-                    rules_index = match.end()
-                    rules = yaml.safe_load(content[rules_index:])
-                    if language == "markdown":
-                        markdownyamlobj = add_rules_to_items2(rules)
+            download_url = file["download_url"]
+            save_path = os.path.join(save_to_folder, file["name"])
+            with urllib.request.urlopen(download_url) as raw_response:
+                content = raw_response.read()
+                with open(save_path, "wb") as f:
+                    f.write(content)
 
-                    else:
-                        yamlobj = {
-                            "comment": {
-                                "start": f"(?i)^```{language}$",
-                                "end": "^```$",
-                                "rules": rules,
-                            }
+
+def retrieve_files(
+    source="files",
+    yamlfilepath="yamlfiles",
+    repo="https://api.github.com/repos/zyedidia/micro/contents/runtime/syntax",
+):
+    if source == "repo":
+        with urllib.request.urlopen(repo) as response:
+            data = response.read()
+            files = json.loads(data)
+
+    elif source == "files":
+        if yamlfilepath:
+            files = [
+                os.path.join(yamlfilepath, f)
+                for f in os.listdir(yamlfilepath)
+                if f.endswith(".yaml")
+            ]
+            if len(files) == 0:
+                print(
+                    "No files found, consider downloading the files first with download_yaml_files(repo, save_to_folder='yamlfiles') or retrieve files from repo: retrieve_files(source='repo', repo='https://api.github.com/repos/zyedidia/micro/contents/runtime/syntax')"
+                )
+    return files
+
+
+def read_yaml_files(files, numberOfFiles=1000):
+    yaml_content_list = []
+
+    for file in files[:numberOfFiles]:
+        if isinstance(file, dict):
+            filename = file["name"]
+            if filename.endswith(".yaml"):
+                with urllib.request.urlopen(file["download_url"]) as raw_response:
+                    content = raw_response.read().decode("utf-8")
+        else:
+            filename = os.path.basename(file)
+            if not filename.endswith(".yaml"):
+                continue
+            with open(file, "r", encoding="utf-8") as f:
+                content = f.read()
+
+        language = filename.removesuffix(".yaml")
+        language = translate_language_name(language)
+        valid_content = remove_invalid_blocks(content, filename)
+        valid_content = valid_content + "\n"
+        yaml_content_list.append((language, valid_content))
+    return yaml_content_list
+
+
+def rebuild_yaml_content(yaml_content_list):
+    rebuilt_yaml_content_list = []
+    markdownyamlobj = None
+    yaml = YAML(typ="safe", pure=True)
+    for yaml_content in yaml_content_list:
+        language, content = yaml_content
+        match = re.search(r"^rules:\s*\n", content, flags=re.MULTILINE)
+        if match:
+            rules_index = match.end()
+            try:
+                rules = yaml.load(content[rules_index:])
+                if language == "markdown":
+                    markdownyamlobj = add_rules_to_items(rules)
+                else:
+                    comment_block = CommentedMap(
+                        {
+                            "start": f"(?i)^```{language}$",
+                            "end": "^```$",
+                            "rules": rules,
                         }
-                        yamlobj = add_rules_to_items2(yamlobj)
-                        yamlcollection.append(yamlobj)
+                    )
+                    yamlobj = CommentedMap({"comment": comment_block})
+                    yamlobj.yaml_set_start_comment(
+                        f"----- Rule set for language: {language} -----",
+                    )
+
+                    yamlobj = add_rules_to_items(yamlobj)
+                    rebuilt_yaml_content_list.append(yamlobj)
+            except Exception as e:
+                print(e)
 
     if markdownyamlobj is not None:
         if isinstance(markdownyamlobj, list):
-            yamlcollection.extend(markdownyamlobj)
+            rebuilt_yaml_content_list.extend(markdownyamlobj)
         else:
-            yamlcollection.append(markdownyamlobj)
-    return yamlcollection
+            rebuilt_yaml_content_list.append(markdownyamlobj)
+
+    return rebuilt_yaml_content_list
 
 
-def insert_blank_lines(yaml_text):
-    lines = yaml_text.splitlines()
-    new_lines = []
-    for i, line in enumerate(lines):
-        if line.startswith("  - comment:"):
-            new_lines.append("")
-        new_lines.append(line.replace("/", "//"))
-        # If current line is a dict item (- key:) and next is also a dict item, insert blank line
+def create_markdownmdsyntax_yaml(code_syntax, configpath):
+    full_yaml = {
+        "filetype": "markdown",
+        "detect": {"filename": r"\.(livemd|md|mkd|mkdn|markdown)$"},
+        "rules": code_syntax,
+    }
 
-    return "\n".join(new_lines) + "\n"
-
-
-class IndentDumper(yaml.Dumper):
-    def increase_indent(self, flow=False, indentless=False):
-        # Override to control indentation behavior
-        return super().increase_indent(
-            flow, False
-        )  # force indentless=False for better indentation
+    try:
+        configpath = os.path.expanduser(configpath)
+        os.makedirs(configpath, exist_ok=True)
+        filepath = os.path.join(configpath, "markdownsyntaxhighlight.yaml")
+        yaml = YAML(typ="rt")
+        with open(
+            filepath,
+            "w",
+            encoding="utf-8",
+        ) as f:
+            yaml.dump(full_yaml, f)
+    except Exception as e:
+        raise e
 
 
 def main():
-    yamllist = retrieveYamlfiles(
-        repo="zyedidia/micro", path="runtime/syntax", numberOfFiles=1000
-    )
-    full_yaml = {
-        "filetype": "markdownmod",
-        "detect": {"filename": r"\.(livemd|md|mkd|mkdn|markdown)$"},
-        "rules": yamllist,
-    }
-    with open(
-        r"C:\Users\bjornbsm\.config\micro\syntax\markdownmod.yaml",
-        "w",
-        encoding="utf-8",
-    ) as f:
-        f.write(
-            insert_blank_lines(
-                yaml.dump(
-                    full_yaml,
-                    allow_unicode=False,
-                    Dumper=IndentDumper,
-                    sort_keys=False,
-                    width=4096,
-                    default_flow_style=False,
-                )
-            )
-        )
+    repo = "https://api.github.com/repos/zyedidia/micro/contents/runtime/syntax"
+    source = "files"
+    yamlfilepath = "yamlfiles"
+
+    files = retrieve_files(source=source, yamlfilepath=yamlfilepath)
+
+    yaml_content_list = read_yaml_files(files, numberOfFiles=1000)
+
+    code_syntax = rebuild_yaml_content(yaml_content_list)
+
+    create_markdownmdsyntax_yaml(code_syntax, "~/.config/micro/syntax")
 
 
 if __name__ == "__main__":
