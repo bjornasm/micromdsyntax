@@ -3,21 +3,27 @@ import json
 import re
 import os
 from ruamel.yaml import YAML
-from utils import add_rules_to_items, translate_language_name, remove_invalid_blocks
 from ruamel.yaml.comments import CommentedMap
+from utils import add_rules_to_items, translate_language_name, remove_invalid_blocks
 
 
-def download_yaml_files(repo, save_to_folder="yamlfiles"):
-    os.makedirs(save_to_folder, exist_ok=True)
+def download_yaml_files(repo_url: str, destination_path="yamlfiles"):
+    """Function to download all the syntax yaml files from micro's repo to a local folder
 
-    with urllib.request.urlopen(repo) as response:
+    Args:
+        repo_url (str): The full github url to the folder that contains micros syntax files
+        destination_path (str, optional): Destination folder. Defaults to "yamlfiles".
+    """
+    os.makedirs(destination_path, exist_ok=True)
+
+    with urllib.request.urlopen(repo_url) as response:
         data = response.read()
         files = json.loads(data)
 
     for file in files:
         if file["name"].endswith(".yaml"):
             download_url = file["download_url"]
-            save_path = os.path.join(save_to_folder, file["name"])
+            save_path = os.path.join(destination_path, file["name"])
             with urllib.request.urlopen(download_url) as raw_response:
                 content = raw_response.read()
                 with open(save_path, "wb") as f:
@@ -25,10 +31,20 @@ def download_yaml_files(repo, save_to_folder="yamlfiles"):
 
 
 def retrieve_files(
-    source="files",
-    yamlfilepath="yamlfiles",
-    repo="https://api.github.com/repos/zyedidia/micro/contents/runtime/syntax",
+    source: str = "files",
+    yamlfilepath: str = "yamlfiles",
+    repo: str = "https://api.github.com/repos/zyedidia/micro/contents/runtime/syntax",
 ):
+    """Function to retrieve and read in files, either through reading directly from the repo - when source="repo" or from a local folder, when source="files".
+
+    Args:
+        source (str, optional): Which source to read files from, either "repo" or "files". Defaults to "files".
+        yamlfilepath (str, optional): Path to the local folder that holds the yaml files. Defaults to "yamlfiles".
+        repo (_type_, optional): Url to the syntaxfiles in the micro repository. Defaults to "https://api.github.com/repos/zyedidia/micro/contents/runtime/syntax".
+
+    Returns:
+        _type_: Files as a json object or a list og filepaths.
+    """
     if source == "repo":
         with urllib.request.urlopen(repo) as response:
             data = response.read()
@@ -48,7 +64,17 @@ def retrieve_files(
     return files
 
 
-def read_yaml_files(files, numberOfFiles=1000):
+def read_yaml_files(files, numberOfFiles=1000, languagelist=[]) -> list[str]:
+    """Function to read in and validate the confent of the yaml syntax files from the list of files.
+
+    Args:
+        files (_type_): Either a json object or json objects from the github repo or a list of filepaths.
+        numberOfFiles (int, optional): The number of files that should be read, mostly added for test purposes. Defaults to 1000.
+        languagelist (list, optional): A list of which languages to add syntax highlighting to. f.ex ['python', 'sh', 'scala']. Defaults to [] which means that all languages are added..
+
+    Returns:
+        list[str]: Returns the content of the collated markdown yaml file
+    """
     yaml_content_list = []
 
     for file in files[:numberOfFiles]:
@@ -66,13 +92,22 @@ def read_yaml_files(files, numberOfFiles=1000):
 
         language = filename.removesuffix(".yaml")
         language = translate_language_name(language)
-        valid_content = remove_invalid_blocks(content, filename)
-        valid_content = valid_content + "\n"
-        yaml_content_list.append((language, valid_content))
+        if languagelist and language in languagelist:
+            valid_content = remove_invalid_blocks(content, filename)
+            valid_content = valid_content + "\n"
+            yaml_content_list.append((language, valid_content))
     return yaml_content_list
 
 
 def rebuild_yaml_content(yaml_content_list):
+    """Rebuilds the yamlfile by adding the correct header for each language, as well as the main header for the markdown yaml syntax file.
+
+    Args:
+        yaml_content_list (list[str]): List of yaml segments for each language
+
+    Returns:
+        list[CommentedMap]: List of CommentedMap
+    """
     rebuilt_yaml_content_list = []
     markdownyamlobj = None
     yaml = YAML(typ="safe", pure=True)
@@ -112,7 +147,22 @@ def rebuild_yaml_content(yaml_content_list):
     return rebuilt_yaml_content_list
 
 
-def create_markdownmdsyntax_yaml(code_syntax, configpath):
+def create_markdownmdsyntax_yaml(
+    code_syntax,
+    configpath: str = "~/.config/micro/syntax",
+    markdownyaml_filename: str = "markdownsyntaxhighlight.yaml",
+):
+    """Generates the finished yaml file with syntax for markdown as well as highlighting syntax for all languages selected.
+
+    Args:
+        code_syntax (_type_): List of CommentedMap that is the yaml syntax for each language
+        configpath (str): The path of the micro config file. Defaults to "~/.config/micro/syntax"
+        markdownyaml_filename (str): The name of the yaml file that will hold the new syntax rules for markdownfiles. Defaults to "markdownsyntaxhighlight.yaml"
+
+
+    Raises:
+        e: _description_
+    """
     full_yaml = {
         "filetype": "markdown",
         "detect": {"filename": r"\.(livemd|md|mkd|mkdn|markdown)$"},
@@ -122,7 +172,7 @@ def create_markdownmdsyntax_yaml(code_syntax, configpath):
     try:
         configpath = os.path.expanduser(configpath)
         os.makedirs(configpath, exist_ok=True)
-        filepath = os.path.join(configpath, "markdownsyntaxhighlight.yaml")
+        filepath = os.path.join(configpath, markdownyaml_filename)
         yaml = YAML(typ="rt")
         with open(
             filepath,
@@ -135,13 +185,15 @@ def create_markdownmdsyntax_yaml(code_syntax, configpath):
 
 
 def main():
-    repo = "https://api.github.com/repos/zyedidia/micro/contents/runtime/syntax"
     source = "files"
     yamlfilepath = "yamlfiles"
+    languagelist = []
 
     files = retrieve_files(source=source, yamlfilepath=yamlfilepath)
 
-    yaml_content_list = read_yaml_files(files, numberOfFiles=1000)
+    yaml_content_list = read_yaml_files(
+        files, numberOfFiles=1000, languagelist=languagelist
+    )
 
     code_syntax = rebuild_yaml_content(yaml_content_list)
 
