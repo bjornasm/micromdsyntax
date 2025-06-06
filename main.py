@@ -92,7 +92,7 @@ def read_yaml_files(files, numberOfFiles=1000, languagelist=[]) -> list[str]:
 
         language = filename.removesuffix(".yaml")
         language = translate_language_name(language)
-        if languagelist and language in languagelist:
+        if (language in languagelist) or not languagelist:
             valid_content = remove_invalid_blocks(content, filename)
             valid_content = valid_content + "\n"
             yaml_content_list.append((language, valid_content))
