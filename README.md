@@ -4,7 +4,7 @@ It collects and integrates syntax definitions for multiple programming languages
 
 [The resulting file](https://github.com/bjornasm/micromdsyntax/blob/master/yamlfiles/markdownsyntaxhighlight.yaml) extends Micro's Markdown highlighting to support embedded fenced code blocks.
 
-Give it a try, download the file and add it to `~/.config/micro/syntax/` then copy the following into a markdown file with Micro:
+Give it a try, run the code with `uv run main.py` or download the resulting yaml file and add it to `~/.config/micro/syntax/` then copy the following into a markdown file with Micro:
 
 ````markdown
 ```python
