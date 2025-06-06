@@ -2,7 +2,7 @@ micromdsyntax is a tool that generates a custom YAML syntax file for the [Micro 
 
 It collects and integrates syntax definitions for multiple programming languages directly from Micro’s official repository or from local copies of its YAML syntax files.
 
-The resulting file extends Micro's Markdown highlighting to support embedded fenced code blocks.
+[The resulting file](https://github.com/bjornasm/micromdsyntax/blob/master/yamlfiles/markdownsyntaxhighlight.yaml) extends Micro's Markdown highlighting to support embedded fenced code blocks.
 
 Give it a try, copy the following into a markdown file with Micro:
 
