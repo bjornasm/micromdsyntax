@@ -1,3 +1,5 @@
+### See PR to Micro https://github.com/zyedidia/micro/pull/3771 for an updated way to handle this. This repo will be updated accordingly.
+
 micromdsyntax is a tool that generates a custom YAML syntax file for the [Micro editor](https://micro-editor.github.io/) to enable syntax highlighting within fenced Markdown code blocks. 
 
 It collects and integrates syntax definitions for multiple programming languages directly from Micro’s official repository or from local copies of its YAML syntax files.
